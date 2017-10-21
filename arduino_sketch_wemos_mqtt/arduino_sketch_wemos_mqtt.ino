@@ -5,8 +5,6 @@
 #include <PubSubClient.h>
 
 
-char buffer[10];
-
 /* PIN SETUP */
 #define relayPin D1
 
@@ -98,7 +96,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
     s.concat((char)payload[i]);
   }
   Serial.println();
-  checkPayload(s);
   forwardPayload(s);
 }
 
@@ -154,15 +151,5 @@ void mqttOut() {
     client.publish(mqttTopicSend, charBuf);
     serialString = "";
     serialComplete = false;
-  }
-}
-
-void checkPayload(String s) {
-  if(s.equals("on")) {
-    digitalWrite(relayPin, HIGH);
-    Serial.println("Relay On");
-  } else if(s.equals("off")) {
-    digitalWrite(relayPin, LOW);
-    Serial.println("Relay Off");
   }
 }
