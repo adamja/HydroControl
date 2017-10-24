@@ -1,9 +1,8 @@
-// edit comment hello adam
+
 float powervoltage=5;//define the power supply voltage.
 #include <Wire.h>                  //One Wire library
-#include <RTClib.h>                //Real Time Clock library
 #include <DHT.h>                   //DHT (Temperature/Humidity) library
-
+#
 int dht_dpin = 50;                //pin for DHT22
 int pHPin = A2;                    //pin for pH probe
 int pHPlusPin = 45;                //pin for Base pump (relay)
@@ -15,7 +14,6 @@ int solenoidPin = 47;              //pin for Solenoid valve (relay)
 int lightSensor = A1;              //pin for Photoresistor
 int growLights = 48;               //pin for Grow Lights (relay)
 
-RTC_DS1307 RTC;
 
 //*********Declaring Variables************************************//
 int tankProgState = 1;             //returns the state of tank program - on or off
@@ -34,12 +32,31 @@ int average = 0;                   //the average
 
 int count=0;
 
+int ledState = LOW;                //variables for pulsing the pump
+long previousMillis = 0;           //             |
+long pinHighTime = 100;            //             |
+long pinLowTime = 7500;            //             |
+long pinTime = 100;                //             |
+
+int sdState = LOW;                 //variables for delayed writing to SD card
+long sdPreviousMillis = 0;         //             |
+long sdTime = 7500;                //             |
+
+int pmem = 0;                      //check which page your on
+float Setpoint = 7.0               //holds value for Setpoint - pH?
+float HysterisMin;                 //Minimum deviation from Setpoint
+float HysterisPlus;                //Maximum deviation from Setpoint
+float SetHysteris = 4.0            //Holds the value for Hysteris - pH?
+float FanTemp;                     //Holds the set value for temperature
+float FanHumid;                    //Holds the set value for humidity
+float fanHysteris = 2;             //Set value for hysteris tuning Fan
+float LightTime;                   //Holds the set value for amount of time plants should have light
+
 int lightADCReading;               //variables for measuring the light
 double currentLightInLux;          //              |
 double lightInputVoltage;          //              |
 double lightResistance;            //              |
 
-DateTime now;                      //call current Date and Time
 
 #define DHTTYPE DHT22              //define which DHT chip is used - DHT11 or DHT22
 byte bGlobalErr;                   //for passing error code back.
@@ -48,11 +65,9 @@ byte dht_dat[4];
 void setup() 
 {
 // initialize serial communication at 9600 bits per second:
+  Serial.begin(9600);
   smoothArraySetup();          //Sets the array for smoothing the pH value to 0
-  logicsetup(); //Replaces the void Setup
-  timeSetup();   
-  start_time = now.get(); //initialises the RTC module
-  seconds_elapsed_total = 0;
+  logicSetup(); //Replaces the void Setup
 
 }
 
@@ -63,7 +78,12 @@ void loop()
   fotoLoop();                 //Light measurements loop through this one
   FanControl();               //Fans are controlled in this loop
   TankProgControl();          //Conrolling loop for refilling the tank
-  LightControl();             //Controls when the grow lights are turned on
+}
+
+void InitDHT()
+{
+  pinMode(dht_dpin,OUTPUT);
+  digitalWrite(dht_dpin,HIGH);
 }
 
 void smoothArraySetup()
@@ -83,15 +103,77 @@ void logicSetup()
   pinMode(solenoidPin, OUTPUT);
 
   pmem==0;
-
+  SetHysteris = 0;
   InitDHT();
   delay(300);
 }
 
+void ReadDHT()f
+{
+  bGlobalErr=0;
+  byte dht_in;
+  byte i;
+  digitalWrite(dht_dpin,LOW);
+  delay(23);
+  digitalWrite(dht_dpin,HIGH);
+  delayMicroseconds(40);
+  pinMode(dht_dpin,INPUT);
+  dht_in=digitalRead(dht_dpin);
+
+  if(dht_in)
+  {
+    bGlobalErr=1;//dht start condition 1 not met
+    return;
+  }
+
+  delayMicroseconds(80);
+  dht_in=digitalRead(dht_dpin);
+
+  if(!dht_in)
+  {
+    bGlobalErr=2;//dht start condition 2 not met
+    return;
+  }
+
+  delayMicroseconds(80);
+  for (i=0; i<5; i++)
+    dht_dat[i] = read_dht_dat();
+
+  pinMode(dht_dpin,OUTPUT);
+
+  digitalWrite(dht_dpin,HIGH);
+
+  byte dht_check_sum =
+    dht_dat[0]+dht_dat[1]+dht_dat[2]+dht_dat[3];
+
+  if(dht_dat[4]!= dht_check_sum)
+  {
+    bGlobalErr=3;
+  }
+}
+
+byte read_dht_dat()
+{
+  byte i = 0;
+  byte result=0;
+  for(i=0; i< 8; i++)
+  {
+    while(digitalRead(dht_dpin)==LOW);
+    delayMicroseconds(45);
+
+    if (digitalRead(dht_dpin)==HIGH)
+      result |=(1<<(7-i));
+
+    while (digitalRead(dht_dpin)==HIGH);
+  }
+  return result;
+}
+
+
 void logicLoop()
 {
   ReadDHT();                                        //call DHT chip for data
-
+/*
   if (smoothPh == 0)                                //If smoothPh = 0 then no smooting is used
   {                                                 //                  |
     float sensorValue = 0;                          //Default the Value = 0
@@ -224,25 +306,10 @@ void logicLoop()
         pmem = 0;
       }
     }  
-  }   
+  }
+  */   
   if (smoothPh == 1)
-  {
-   // total = total - readings[index];
-   // readings[index] = analogRead(pHPin);
-   // total = total + readings[index];
-   // index = index + 1;
-
-   // if (index >= numReadings)
-   // {
-    //  index = 0;
-   // }
-
-  //  average = total / numReadings;
-
-    //float sensorValue = 0;
-    //sensorValue = average;
-    //pH = (0.0178 * sensorValue - 1.889);
-    
+  { 
     for(int i=0;i<14;i++)
     {
       buf[i]=analogRead(pHPin);
@@ -281,23 +348,23 @@ void logicLoop()
       {
         if (pH < HysterisMin)
         {
-          pmem = 1;
+          pmem = 1;  // pH low pump on
         }
 
         if (pH >= HysterisMin && pH <= HysterisPlus)
         {
-          digitalWrite (pHPlusPin, LOW);
-          digitalWrite (pHMinPin, LOW);
+          digitalWrite (pHPlusPin, LOW);  // pH high pump off
+          digitalWrite (pHMinPin, LOW);   // pH low pump off
         }
 
         if (pH > HysterisPlus)
         {
-          pmem = 2;
+          pmem = 2;  // pH high pump on
         }
       }
 
 
-      if (pmem == 1)
+      if (pmem == 1)  // low bad point
       {
         if (pH < HysterisMin)
         {
@@ -321,7 +388,7 @@ void logicLoop()
           }      
         }
 
-        if (pH >= HysterisMin && pH < Setpoint)
+        if (pH >= HysterisMin && pH < Setpoint)  // ph currently low - add ph
         {
           unsigned long currentMillis = millis();
           if(currentMillis - previousMillis > pinTime)
@@ -349,7 +416,7 @@ void logicLoop()
         }
       }  
 
-      if (pmem == 2)
+      if (pmem == 2)  // ph currently high - minus ph
       {
         if (pH > HysterisPlus)
         {
@@ -402,42 +469,61 @@ void logicLoop()
       }  
     } 
   }
-
-
-  if (page == 0)
-  {
-    myGLCD.printNumF(pH, 2, 91, 23);
-    myGLCD.printNumI(dht_dat[0], 91, 115, 3);
-    myGLCD.printNumI(dht_dat[2], 91, 69, 3);
-    myGLCD.printNumI(currentLightInLux, 91, 162, 4);
-  }
   delay(250);               
 }
 
-
-
-
-void loop() {
-float temperature1;
-float ph;
-// read the input on analog pin 0:
-float sensorValue_ph = analogRead(A2);
-float sensorValue_temp = analogRead(A0);
-// print out the value you read:
-temperature1=(sensorValue_temp/1023)*powervoltage*100;
-ph=0.0178*sensorValue_ph-2.9;
-//Serial.print("The room temperature degree is:");
-Serial.println(temperature1,1);
-//Serial.println(temperature2,1)
-Serial.println(ph,2);
-if (temperature1>27.0)
+void fotoLoop()
 {
-  analogWrite(motorpin, 100);
+  lightADCReading = analogRead(lightSensor);
+  // Calculating the voltage of the ADC for light
+  lightInputVoltage = 5.0 * ((double)lightADCReading / 1024.0);
+  // Calculating the resistance of the photoresistor in the voltage divider
+  lightResistance = (10.0 * 5.0) / lightInputVoltage - 10.0;
+  // Calculating the intensity of light in lux       
+  currentLightInLux = 255.84 * pow(lightResistance, -10/9);
 }
 
-if (temperature<26.0)
+void FanControl()
 {
-  analogWrite(motorpin, 0);
+  if ((dht_dat[0] >= FanHumid + fanHysteris) && (dht_dat[2] >= FanTemp + fanHysteris) || (dht_dat[0] >= FanHumid + fanHysteris + 15) || (dht_dat[2] >= FanTemp + fanHysteris + 5))
+  {
+    digitalWrite(ventilatorPin, HIGH);
+  }
+  else if ((dht_dat[0] <= FanHumid - fanHysteris) && (dht_dat[2] <= FanTemp - fanHysteris) || (dht_dat[0] <= FanHumid - fanHysteris - 10) || (dht_dat[2] <= FanTemp - fanHysteris - 5))
+  {
+    digitalWrite(ventilatorPin, LOW);
+  }
 }
-delay(10000); // delay in between reads for stability
+
+void TankProgControl()
+{
+  if (tankProgState == 0)
+  {
+  }
+  if (tankProgState == 1)
+  {
+    int levelHigh = LOW;
+    int levelLow = LOW;
+
+    levelHigh = digitalRead(floatHighPin);
+    levelLow = digitalRead(floatLowPin);
+
+    if (levelHigh == LOW)
+    {
+      if (levelLow == LOW)
+      {
+        digitalWrite(solenoidPin, HIGH); //solenoid valve open.
+      }
+    }
+    else
+    {
+      if (levelLow == HIGH)
+      {
+        digitalWrite(solenoidPin, LOW); //solenoid valve closed.
+      }
+    }
+  }
 }
+
+
+
