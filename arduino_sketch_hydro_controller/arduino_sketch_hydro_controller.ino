@@ -12,7 +12,7 @@ int floatLowPin = 8;               //pin for lower float sensor
 int floatHighPin = 7;              //pin for upper float sensor
 int solenoidPin = 47;              //pin for Solenoid valve (relay)
 int lightSensor = A1;              //pin for Photoresistor
-int growLights = 48;               //pin for Grow Lights (relay)
+              //pin for Grow Lights (relay)
 
 
 //*********Declaring Variables************************************//
@@ -57,8 +57,8 @@ double currentLightInLux;          //              |
 double lightInputVoltage;          //              |
 double lightResistance;            //              |
 
-
 #define DHTTYPE DHT22              //define which DHT chip is used - DHT11 or DHT22
+DHT dht(dht_dpin, DHTTYPE);        //
 byte bGlobalErr;                   //for passing error code back.
 byte dht_dat[4];
 
@@ -69,6 +69,8 @@ void setup()
   smoothArraySetup();          //Sets the array for smoothing the pH value to 0
   logicSetup(); //Replaces the void Setup
 
+  // Temperature sensor init
+  dht.begin;
 }
 
 void loop()
@@ -108,206 +110,28 @@ void logicSetup()
   delay(300);
 }
 
-void ReadDHT()f
+float temp_hum_read()
 {
-  bGlobalErr=0;
-  byte dht_in;
-  byte i;
-  digitalWrite(dht_dpin,LOW);
-  delay(23);
-  digitalWrite(dht_dpin,HIGH);
-  delayMicroseconds(40);
-  pinMode(dht_dpin,INPUT);
-  dht_in=digitalRead(dht_dpin);
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
 
-  if(dht_in)
+  if (isnan(h) | isnan(t))
   {
-    bGlobalErr=1;//dht start condition 1 not met
-    return;
+    // Failed to read from the sensor
+    return -100;
   }
-
-  delayMicroseconds(80);
-  dht_in=digitalRead(dht_dpin);
-
-  if(!dht_in)
-  {
-    bGlobalErr=2;//dht start condition 2 not met
-    return;
-  }
-
-  delayMicroseconds(80);
-  for (i=0; i<5; i++)
-    dht_dat[i] = read_dht_dat();
-
-  pinMode(dht_dpin,OUTPUT);
-
-  digitalWrite(dht_dpin,HIGH);
-
-  byte dht_check_sum =
-    dht_dat[0]+dht_dat[1]+dht_dat[2]+dht_dat[3];
-
-  if(dht_dat[4]!= dht_check_sum)
-  {
-    bGlobalErr=3;
-  }
+    Serial.print("Humidity: ");
+    Serial.println(h);
+    Serial.print("Temperature: ");
+    Serial.println(t); 
+    
+    return t;
 }
-
-byte read_dht_dat()
-{
-  byte i = 0;
-  byte result=0;
-  for(i=0; i< 8; i++)
-  {
-    while(digitalRead(dht_dpin)==LOW);
-    delayMicroseconds(45);
-
-    if (digitalRead(dht_dpin)==HIGH)
-      result |=(1<<(7-i));
-
-    while (digitalRead(dht_dpin)==HIGH);
-  }
-  return result;
-}
-
 
 void logicLoop()
 {
   ReadDHT();                                        //call DHT chip for data
-/*
-  if (smoothPh == 0)                                //If smoothPh = 0 then no smooting is used
-  {                                                 //                  |
-    float sensorValue = 0;                          //Default the Value = 0
-    sensorValue = analogRead(pHPin);                //sensorValue gets the value from the pH probe
-    pH = (sensorValue * 5.0 / 1024 * 3.5 + Offset); //pH = the calculated value
-                                                    //                  |
-    HysterisMin = (Setpoint - SetHysteris);         //HysterisMin = the lowest value that is allowed by the program. Lower then this and a Base is added.
-    HysterisPlus = (Setpoint + SetHysteris);        //HysterisPlus = the highest value that is allowed by the program. Higher and an acid is added.
-                                                    //                  |
-    if (pmem == 0)                                  //If pmem equals 0, then goto the next if statement.                 
-    {                                               //                  |
-      if (pH < HysterisMin)                         //If pH is smaller then HysterisMin, then set pmem to 1
-      {                                             //                  |
-        pmem = 1;                                   //                  |
-      }                                             //                  |
-                                                    //                  |
-      if (pH >= HysterisMin && pH <= HysterisPlus)  //If pH is greater or the same as HysterisMin AND pH is smaller of the same as HysterisPlus, then do nothing.
-      {                                             //                  |
-        digitalWrite (pHPlusPin, LOW);              //Set base pump to off position
-        digitalWrite (pHMinPin, LOW);               //Set acid pump to off position
-      }                                             //                  |
-                                                    //                  |
-      if (pH > HysterisPlus)                        //If pH is greater then HysterisPlus, set pmem to 2
-      {                                             //                  |
-        pmem = 2;                                   //                  |
-      }                                             //                  |
-    }                                               //                  |
-                                                    //                  |
-                                                    //                  |
-    if (pmem == 1)                                  //If pmem equals 1, the goto next if statement
-    {                                               //                  |
-      if (pH < HysterisMin)                         //If pH is smaller then HysterisMin, then 
-      {
-        unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis > pinTime)
-        {
-          previousMillis = currentMillis;
 
-          if (ledState == LOW)
-          {
-            ledState = HIGH;
-            pinTime = pinHighTime;
-          }
-          else
-          {
-            ledState = LOW;
-            pinTime = pinLowTime;
-          }
-          digitalWrite (pHPlusPin, ledState);
-          digitalWrite (pHMinPin, LOW);
-        }      
-      }
-
-      if (pH >= HysterisMin && pH < Setpoint)
-      {
-        unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis > pinTime)
-        {
-          previousMillis = currentMillis;
-
-          if (ledState == LOW)
-          {
-            ledState = HIGH;
-            pinTime = pinHighTime;
-          }
-          else
-          {
-            ledState = LOW;
-            pinTime = pinLowTime;
-          }
-          digitalWrite (pHPlusPin, ledState);
-          digitalWrite (pHMinPin, LOW);
-        }      
-      }
-
-      if (pH >= Setpoint)
-      {
-        pmem = 0;
-      }
-    }  
-
-    if (pmem == 2)
-    {
-      if (pH > HysterisPlus)
-      {
-        unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis > pinTime)
-        {
-          previousMillis = currentMillis;
-
-          if (ledState == LOW)
-          {
-            ledState = HIGH;
-            pinTime = pinHighTime;
-          }
-          else
-          {
-            ledState = LOW;
-            pinTime = pinLowTime;
-          }
-          digitalWrite (pHMinPin, ledState);
-          digitalWrite (pHPlusPin, LOW);
-        }      
-      }
-
-      if (pH <= HysterisPlus && pH > Setpoint)
-      {
-        unsigned long currentMillis = millis();
-        if(currentMillis - previousMillis > pinTime)
-        {
-          previousMillis = currentMillis;
-
-          if (ledState == LOW)
-          {
-            ledState = HIGH;
-            pinTime = pinHighTime;
-          }
-          else
-          {
-            ledState = LOW;
-            pinTime = pinLowTime;
-          }
-          digitalWrite (pHMinPin, ledState);
-          digitalWrite (pHPlusPin, LOW);
-        }      
-      }
-
-      if (pH <= Setpoint)
-      {
-        pmem = 0;
-      }
-    }  
-  }
-  */   
   if (smoothPh == 1)
   { 
     for(int i=0;i<14;i++)
