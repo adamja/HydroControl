@@ -1,8 +1,8 @@
 
-float powervoltage=5;//define the power supply voltage.
 #include <Wire.h>                  //One Wire library
 #include <DHT.h>                   //DHT (Temperature/Humidity) library
-#
+
+float powervoltage = 5;//define the power supply voltage.
 int dht_dpin = 50;                //pin for DHT22
 int pHPin = A2;                    //pin for pH probe
 int pHPlusPin = 45;                //pin for Base pump (relay)
