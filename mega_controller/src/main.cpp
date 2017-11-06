@@ -26,19 +26,19 @@ TODO:
 # PIN SETUP                     
 *******************************************************************/
 // Inputs
-int pin_water_ph = A2;           // Water ph sensor
-int pin_water_temp = A0;         // Water temp sensor
-int pin_air_temp = 50;           // Air temp sensor
-int pin_water_high = 7;          // Water high reed switch
-int pin_water_middle = 8;        // Water middle reed switch
-int pin_water_low = 9;           // Water low reed switch
-int pin_light = A1;              // Light sensor
+#define pin_water_ph A2           // Water ph sensor
+#define pin_water_temp A0         // Water temp sensor
+#define pin_air_temp 50           // Air temp sensor
+#define pin_water_high 7          // Water high reed switch
+#define pin_water_middle 8        // Water middle reed switch
+#define pin_water_low 9           // Water low reed switch
+#define pin_light A1              // Light sensor
 
 // Outputs
-int pin_ph_plus = 45;            // ph plus relay
-int pin_ph_minus = 43;           // ph minus relay
-int pin_fan = 49;                // Fan relay
-int pin_solenoid = 47;           // Water solenoid relay
+#define pin_ph_plus 45            // ph plus relay
+#define pin_ph_minus 43           // ph minus relay
+#define pin_fan 49                // Fan relay
+#define pin_solenoid 47           // Water solenoid relay
 
 /*******************************************************************
 # VARIABLE SETUP                 
@@ -46,7 +46,8 @@ int pin_solenoid = 47;           // Water solenoid relay
 
 // SERIAL
 #define BAUD_RATE 9600          // Serial Baud Rate
-#define DELIMITER $             // Delimiter to determine end of serial message
+#define MSG_SPLITTER |          // Splitter to seperate topic and message within a serial message
+#define MSG_DELIMITER $         // Delimiter to determine end of serial message
 
 float board_voltage = 5;        // Arduino Mega analogue input reads at 5V
 
@@ -62,6 +63,10 @@ int manual_solenoid = 0;        // Default off
 // WATER TEMP VARIABLES
 
 // AIR TEMP VARIABLES
+#define DHTTYPE DHT22           // DHT 22  (AM2302)
+DHT dht(pin_air_temp, DHTTYPE);
+float air_temp = 0.0;
+float air_humidity = 0.0;       
 
 // LIGHT VARIABLES
 
@@ -87,7 +92,24 @@ void pin_setup() {
 
 
 void get_air_temp_humidity() {
+    // Reading temperature or humidity takes about 250 milliseconds!
+    // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+    float h = dht.readHumidity();
+    // Read temperature as Celsius
+    float t = dht.readTemperature();
+  
+    // Check if any reads failed and exit early (to try again).
+    if (isnan(h) || isnan(t)) {
+        Serial.println("Failed to read from DHT sensor!");
+        return;
+    }
 
+    Serial.print("Humidity: "); 
+    Serial.print(h);
+    Serial.print(" %\t");
+    Serial.print("Temperature: "); 
+    Serial.print(t);
+    Serial.print(" *C ");
 }
 
 
@@ -182,6 +204,7 @@ void serialEvent() {
 void setup() {
     pin_setup();                  // Setup pins as inputs and outputs
     Serial.begin(BAUD_RATE);      // Start Serial
+    dht.begin();                  // Air Temp
   }
   
   
