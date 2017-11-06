@@ -9,16 +9,18 @@ TODO:
       be read in a function all at once.
       Looking further into it, we might be able to use SerialEvent:
       https://www.arduino.cc/en/Tutorial/SerialEvent
+    - Add a queue library to assist with incoming messages
+      https://playground.arduino.cc/Code/QueueArray#Download
 */
 
 /*******************************************************************
 # INCLUDES                 
 *******************************************************************/
 
-#include <Arduino.h>
+#include <Arduino.h>        // Arduino library
 #include <Wire.h>
-#include <DHT.h>
-
+#include <DHT.h>            // Temperature sensor library  for DHT22
+#include <QueueArray.h>     // Queue library for holding serial input messages
 
 /*******************************************************************
 # PIN SETUP                     
@@ -27,9 +29,9 @@ TODO:
 int pin_water_ph = A2;           // Water ph sensor
 int pin_water_temp = A0;         // Water temp sensor
 int pin_air_temp = 50;           // Air temp sensor
-int pin_water_high = 7;         // Water high reed switch
-int pin_water_middle = 8;       // Water middle reed switch
-int pin_water_low = 9;          // Water low reed switch
+int pin_water_high = 7;          // Water high reed switch
+int pin_water_middle = 8;        // Water middle reed switch
+int pin_water_low = 9;           // Water low reed switch
 int pin_light = A1;              // Light sensor
 
 // Outputs
@@ -42,16 +44,18 @@ int pin_solenoid = 47;           // Water solenoid relay
 # VARIABLE SETUP                 
 *******************************************************************/
 
-#define BAUD_RATE 9600          // Serial
+// SERIAL
+#define BAUD_RATE 9600          // Serial Baud Rate
+#define DELIMITER $             // Delimiter to determine end of serial message
 
 float board_voltage = 5;        // Arduino Mega analogue input reads at 5V
 
 // MANUAL VARIABLES
 bool manual_override = false;   // Automation stops when set to true
 int manual_ph_plus = 0;         // Default off
-int manual_ph_minus = 0;
-int manual_fan = 0;
-int manual_solenoid = 0;
+int manual_ph_minus = 0;        // Default off
+int manual_fan = 0;             // Default off
+int manual_solenoid = 0;        // Default off
 
 // PH VARIABLES
 
@@ -152,6 +156,25 @@ void set_manual_mode() {
     }
 }
 
+/*
+  SerialEvent occurs whenever a new data comes in the hardware serial RX. This
+  routine is run between each time loop() runs, so using delay inside loop can
+  delay response. Multiple bytes of data may be available.
+*/
+void serialEvent() {
+    while (Serial.available()) {
+      // get the new byte:
+      char inChar = (char)Serial.read();
+      // add it to the inputString:
+      /* inputString += inChar; */
+      // if the incoming character is a newline, set a flag so the main loop can
+      // do something about it:
+      if (inChar == '\n') {
+        /* stringComplete = true; */
+      }
+    }
+}
+
 /*******************************************************************
 # SETUP AND LOOP                       
 *******************************************************************/
@@ -179,5 +202,5 @@ void setup() {
         set_manual_mode();              // Manual mode function
       }
 
-      // get_commands();                   // Process serial received messages
+      serialEvent();                   // Process serial received messages
   }
