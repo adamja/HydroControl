@@ -9,8 +9,8 @@
 #define relayPin D1
 
 /* WiFi Settings */
-const char* ssid     = "ssid";  // WIFI SSID
-const char* password = "pass";    // WIFI Password
+const char* ssid     = "ha-nootnoot";  // WIFI SSID
+const char* password = "Hackme456";    // WIFI Password
 
 /* Serial */
 String serialString = "";     // Flag to know if more data is to come
@@ -19,10 +19,10 @@ bool serialComplete = false;  // A string to hold incoming data
 /* MQTT */
 const char* mqttTopic = "home/wemos/01";      // MQTT topic
 const char* mqttTopicSend = "home/wemos/01/send"; // MQTT topic send
-IPAddress broker(192,168,40,100);             // Address of the MQTT broker
+IPAddress broker(192,168,40,101);             // Address of the MQTT broker
 #define CLIENT_ID "id"                  // Client ID to send to the broker
-#define mqttUser "user"                       // broker username
-#define mqttPass "pass"                // broker password
+#define mqttUser "adam"                       // broker username
+#define mqttPass "mqttpasswd2017"                // broker password
 #define brokerPort 1883                       // broker port
 
 /* WIFI */
