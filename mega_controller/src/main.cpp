@@ -181,7 +181,7 @@ float calc_avg(int size, float *readings) {
             } 
         }
     }
-    // take 20% off either end of the array
+    // take 20% off either end of the array matt: better way to do it is calculate standard deviation (SD), then remove evrything outside some integer multiple of SD.
     float percent = 0.2;
     int outlier = (int)(size * percent);
 
