@@ -55,9 +55,10 @@ QueueArray <char> char_queue;       // Serial char buffer
 String topic = "";                  
 String msg = "";
 
-// Heartbear
+// Heartbeart
 unsigned long heartbeat_time = 10000;      // Send keep alive message at this interval
 unsigned long heartbeat_prev_millis = 0;
+unsigned int count = 1;
 
 // BOARD
 float board_voltage = 5;        // Arduino Mega analogue input reads at 5V
@@ -798,8 +799,10 @@ void loop() {
 
     unsigned long cur_millis = millis();
     if (heartbeat_prev_millis < cur_millis - heartbeat_time && cur_millis > heartbeat_time) {
-        send_msg("heartbeat", "heartbeat");
+        String hb = "hb-" + String(count);
+        send_msg("heartbeat", hb);
         heartbeat_prev_millis = cur_millis;
+        count++;
     }
 
     delay(10);
