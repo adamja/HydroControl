@@ -154,7 +154,7 @@ void pin_setup() {
     pinMode(pin_water_ph, INPUT);
     pinMode(pin_air_temp, INPUT);
     pinMode(pin_water_high, INPUT_PULLUP);
-    pinMode(pin_water_middle, INPUT_PULLUP);
+    pinMode(pin_water_middle, INPUT_PULLUP);// INPUT_PULLUP is for testing? Matt
     pinMode(pin_water_low, INPUT_PULLUP);
     pinMode(pin_light, INPUT);
 
