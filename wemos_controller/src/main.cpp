@@ -17,7 +17,8 @@ TODO:
 #include <SoftwareSerial.h>
 
 /* Serial Settings */
-#define BAUD_RATE 115200
+#define BAUD_RATE 9600              // Hardware Serial Baud Rate
+#define BAUD_RATE_SS 115200         // Software Serial Baud Rate. Do not use 9600, it causes the wemos to crash and restart during transmission. 115200 appears to work well.
 #define BUFSIZE 100
 const char MSG_SPLITTER = '|';      // Splitter to seperate topic and message within a serial message
 const char MSG_END = '$';           // Symbol to determine end of serial message
@@ -37,10 +38,10 @@ const char* password = "";      // WIFI Password
 /* MQTT */
 const char* mqttSubTopic = "hydrocontroller/send/#";  // MQTT topic
 String mqttPubTopic = "hydrocontroller/rec/";         // MQTT topic send
-IPAddress broker(192,168,1,1);                        // Address of the MQTT broker
-#define CLIENT_ID "xxxxxxxxxxxxx"                     // Client ID to send to the broker
-#define mqttUser "xxxx"                               // broker username
-#define mqttPass "xxxxxxxxxxxxxx"                     // broker password
+IPAddress broker(192,168,40,101);                     // Address of the MQTT broker  
+#define CLIENT_ID "hydrocontroller"                   // Client ID to send to the broker
+#define mqttUser ""                                   // broker username
+#define mqttPass ""                                   // broker password
 #define brokerPort 1883                               // broker port
 
 /* WIFI */
@@ -60,10 +61,12 @@ void sendToSerial(String t, String m) {
     }
   }
   // Create a message to send via serial on the format of: "topic|message$"
+  String flush_payload = String(MSG_SPLITTER) + String(MSG_END);
   String payload = temp + MSG_SPLITTER + m + MSG_END;
 
   Serial.print("Sending via Software Serial: ");  Serial.println(payload);
-  softSerial.print(payload);
+  softSerial.print(flush_payload);    // Clear the buffer at the reciever prior to sending the message. Was having issues with junk readings at the receiver
+  softSerial.print(payload);          // Send payload
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -143,7 +146,7 @@ void serialEvent() {
 
 void setup() {
   Serial.begin(BAUD_RATE);
-  softSerial.begin(BAUD_RATE);
+  softSerial.begin(BAUD_RATE_SS);
   
   Serial.println("Booting");
   WiFi.mode(WIFI_STA);
