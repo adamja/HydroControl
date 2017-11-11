@@ -54,39 +54,44 @@ const char MSG_END = '$';           // Symbol to determine end of serial message
 QueueArray <char> char_queue;       // Serial char buffer
 String topic = "";                  
 String msg = "";
+bool send_all_readings = true;
 
 // Heartbeart
-unsigned long heartbeat_time = 10000;      // Send keep alive message at this interval
+unsigned long heartbeat_delay = 60000;      // Send keep heartbeat message at this interval (ms)
 unsigned long heartbeat_prev_millis = 0;
-unsigned int count = 1;
+unsigned long heartbeat_count = 0;
 
 // BOARD
 float board_voltage = 5;        // Arduino Mega analogue input reads at 5V
 
 // MANUAL VARIABLES
-bool manual_override = false;   // Automation stops when set to true
+bool manual_mode = false;   // Automation stops when set to true
 int manual_ph_plus = 0;         // Default off
 int manual_ph_minus = 0;        // Default off
 int manual_fan = 0;             // Default off
 int manual_solenoid = 0;        // Default off
 
 // PH VARIABLES
-int ph_mode = 0;  // 0 = idle | 1 = ph low | 2 = ph high
-long prev_millis = 0;
-float ph_setpoint = 7.0;
-float ph_hyst_set = 2.0;
-const int ph_array_size = 10;
-int ph_cursor = 0;
-float ph_array[ph_array_size];
-float ph_last = 0.0;
-float ph_avg = ph_setpoint;
-int ph_pin_state = LOW;
-unsigned long ph_pin_time = 100;
-unsigned long ph_pin_low_time = 7500;
-unsigned long ph_pin_high_time = 100;
+int ph_mode = 0;                    // 0 = idle | 1 = ph low | 2 = ph high
+unsigned long ph_reading_delay = 100;   // Delay between reads
+unsigned long ph_read_prev_millis = 0;  // Previous millis when reading
+unsigned long ph_set_prev_millis = 0;   // Previous millis for setting duty cycle
+float ph_setpoint = 7.0;            // Target value for the ph to be set to
+float ph_hyst = 2.0;            // Acceptable deviation from the set point
+const int ph_array_size = 10;       // Amount of readings to take before taking the average
+int ph_cursor = 0;                  // Cursor for array position
+float ph_array[ph_array_size];      // Init the array base on the size
+float ph_last = 0.0;                // 
+float ph_avg = ph_setpoint;         // Variable to store that average ph. Init with the setpoint so nothing is triggered until readings are taken
+int ph_pin_state = LOW;             // Variable to store the state of pin. Used for the duty cycle / toggling when ph is on or off
+unsigned long ph_pin_low_time = 10000;  // ph motor off for this time in duty cycle (ms)
+unsigned long ph_pin_high_time = 1000;  // ph motor on for this time in duty cycle (ms)
+unsigned long ph_pin_time = ph_pin_high_time;   // Variable to store how long to keep the high or low mode active before switching mode
 
 
 // WATER TEMP VARIABLES
+unsigned long water_reading_delay = 100;
+unsigned long water_prev_millis = 0;
 const int water_array_size = 10;
 int water_cursor = 0;
 float water_array[water_array_size];
@@ -104,8 +109,13 @@ float air_temp_last = 0.0;                      // Last temp reading value
 float air_humidity_last = 0.0;                  // Last humidity reading value
 float air_temp_avg = 0.0;                       // 
 float air_humidity_avg = 0.0;                   // 
+unsigned long air_reading_delay = 250;          // time between readings (ms)
+unsigned long air_prev_millis = 0;              // 
+
 
 // LIGHT VARIABLES
+unsigned long light_reading_delay = 100;
+unsigned long light_prev_millis = 0;
 const int light_array_size = 10;
 int light_cursor = 0;
 float light_array[light_array_size];
@@ -130,12 +140,18 @@ int fan_prev = 0;          // 0 = off | 1 = on
 int ph_prev = 0;           // 0 = idle | 1 = ph low | 2 = ph high
 int solenoid_prev = 0;     // 0 = off | 1 = on
 
+int manual_mode_prev = manual_mode;
+int manual_ph_plus_prev = manual_ph_plus;
+int manual_ph_minus_prev = manual_ph_minus;
+int manual_fan_prev = manual_fan;
+int manual_solenoid_prev = manual_solenoid;
+
 float air_temp_avg_prev = air_temp_avg;
 float air_humidity_avg_prev = air_humidity_avg;
 float water_avg_prev = water_avg;
 float ph_avg_prev = ph_avg;
 float ph_setpoint_prev = ph_setpoint;
-float ph_hyst_set_prev = ph_hyst_set;
+float ph_hyst_prev = ph_hyst;
 unsigned long ph_pin_low_time_prev = ph_pin_low_time;
 unsigned long ph_pin_high_time_prev = ph_pin_high_time;
 float light_avg_prev = light_avg;
@@ -144,6 +160,11 @@ int water_med_prev = water_med;
 int water_high_prev = water_high;
 float fan_hyst_prev = fan_hyst;
 float fan_high_prev = fan_high;
+unsigned long heartbeat_delay_prev = heartbeat_delay;
+unsigned long ph_reading_delay_prev = ph_reading_delay;
+unsigned long water_reading_delay_prev = water_reading_delay;
+unsigned long air_reading_delay_prev = air_reading_delay;
+unsigned long light_reading_delay_prev = light_reading_delay;
 
 
 /*******************************************************************
@@ -164,6 +185,10 @@ void pin_setup() {
     pinMode(pin_ph_minus, OUTPUT);
     pinMode(pin_fan, OUTPUT);
     pinMode(pin_solenoid, OUTPUT);
+    digitalWrite(pin_ph_plus, LOW);
+    digitalWrite(pin_ph_minus, LOW);
+    digitalWrite(pin_fan, LOW);
+    digitalWrite(pin_solenoid, LOW);
 }
 
 float calc_avg(int size, float *readings) {
@@ -218,15 +243,23 @@ float calc_avg(int size, float *readings) {
 bool read_air_temp() {
     // Reading temperature or humidity takes about 250 milliseconds!
     // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-    float h = dht.readHumidity();  // Read humidity
-    float t = dht.readTemperature();  // Read temperature
-  
-    if (isnan(h) || isnan(t)) {
-        return false;  // Failed to read, return false
+
+    unsigned long cur_millis = millis();
+
+    if (air_prev_millis < cur_millis - air_reading_delay) {
+        float h = dht.readHumidity();           // Read humidity
+        float t = dht.readTemperature();        // Read temperature
+        
+    
+        if (isnan(h) || isnan(t)) {
+            return false;  // Failed to read, return false
+        }
+        air_temp_last = h;
+        air_temp_last = t;
+        air_prev_millis = millis();
+        return true;
     }
-    air_temp_last = h;
-    air_temp_last = t;
-    return true;
+    return false;
 }
 
 bool air_temp_update() {
@@ -251,8 +284,14 @@ bool air_temp_update() {
 *******************************************************************/
 
 bool read_water_ph() {
-    ph_last = analogRead(pin_water_ph);
-    return true;
+    unsigned long cur_millis = millis();
+
+    if (ph_read_prev_millis < cur_millis - ph_reading_delay) {
+        ph_last = analogRead(pin_water_ph);
+        ph_read_prev_millis = cur_millis;
+        return true;
+    }
+    return false;
 }
 
 float convert_ph(float ph_raw) {
@@ -277,8 +316,8 @@ bool ph_update() {
 }
 
 void set_ph() {
-    float ph_hyst_min = ph_setpoint - ph_hyst_set;
-    float ph_hyst_max = ph_setpoint + ph_hyst_set;
+    float ph_hyst_min = ph_setpoint - ph_hyst;
+    float ph_hyst_max = ph_setpoint + ph_hyst;
 
     if (ph_mode == 0) {  // idle mode
         if (ph_avg < ph_hyst_min) {  // ph below min limit
@@ -300,8 +339,8 @@ void set_ph() {
     if (ph_mode == 1) {  // low mode
         if (ph_avg < ph_setpoint) {  // ph is below set point. Add ph plus
             unsigned long cur_millis = millis();
-            if (cur_millis - prev_millis > ph_pin_time) {
-                prev_millis = cur_millis;
+            if (cur_millis - ph_set_prev_millis > ph_pin_time) {
+                ph_set_prev_millis = cur_millis;
 
                 if (ph_pin_state == LOW) {
                     ph_pin_state = HIGH;
@@ -327,8 +366,8 @@ void set_ph() {
     if (ph_mode == 2) {  // high mode
         if (ph_avg > ph_setpoint) {
             unsigned long cur_millis = millis();
-            if (cur_millis - prev_millis > ph_pin_time) {
-                prev_millis = cur_millis;
+            if (cur_millis - ph_set_prev_millis > ph_pin_time) {
+                ph_set_prev_millis = cur_millis;
 
                 if (ph_pin_state == LOW) {
                     ph_pin_state = HIGH;
@@ -357,6 +396,13 @@ void set_ph() {
 *******************************************************************/
 
 bool read_water_temp() {
+    unsigned long cur_millis = millis();
+
+    if (water_prev_millis < cur_millis - water_reading_delay) {
+        water_last = analogRead(pin_water_temp);
+        water_prev_millis = cur_millis;
+        return true;
+    }
     return false;
 }
 
@@ -379,6 +425,13 @@ bool water_temp_update() {
 *******************************************************************/
 
 bool read_light() {
+    unsigned long cur_millis = millis();
+
+    if (light_prev_millis < cur_millis - light_reading_delay) {
+        analogRead(pin_light);
+        light_prev_millis = cur_millis;
+        return true;
+    }
     return false;
 }
 
@@ -500,6 +553,7 @@ void set_manual_mode() {
 # SERIAL SEND
 *******************************************************************/
 void send_msg(String t, String m) {
+    // Send payload
     String payload = t + MSG_SPLITTER + m + MSG_END;
     Serial1.print(payload);
 
@@ -507,231 +561,332 @@ void send_msg(String t, String m) {
     Serial.println(payload);
 }
 
+void heartbeat() {
+    unsigned long cur_millis = millis();
+    if (heartbeat_prev_millis < cur_millis - heartbeat_delay && cur_millis > heartbeat_delay) {
+        heartbeat_count++;
+        send_msg("heartbeat", String(heartbeat_count));
+        heartbeat_prev_millis = cur_millis;
+    }
+}
+
 void send_sensor_readings() {
+    // Heartbeat
+    if (send_all_readings) {
+        send_msg("heartbeat", String(heartbeat_count));
+    }
+    // Manual Mode
+    if (manual_mode != manual_mode_prev || send_all_readings) {
+        send_msg("manual_mode", String(manual_mode));
+        manual_mode_prev = manual_mode;
+    }
+    if (manual_ph_plus != manual_ph_plus_prev || send_all_readings) {
+        send_msg("manual_ph_plus", String(manual_ph_plus));
+        manual_ph_plus_prev = manual_ph_plus;
+    }
+    if (manual_ph_minus != manual_ph_minus_prev || send_all_readings) {
+        send_msg("manual_ph_minus", String(manual_ph_minus));
+        manual_ph_minus_prev = manual_ph_minus;
+    }
+    if (manual_fan != manual_fan_prev || send_all_readings) {
+        send_msg("manual_fan", String(manual_fan));
+        manual_fan_prev = manual_fan;
+    }
+    if (manual_solenoid != manual_solenoid_prev || send_all_readings) {
+        send_msg("manual_solenoid", String(manual_solenoid));
+        manual_solenoid_prev = manual_solenoid;
+    }
     // Air Temp
-    if (air_temp_avg != air_temp_avg_prev) {
+    if (air_temp_avg != air_temp_avg_prev || send_all_readings) {
         send_msg("air_temp_avg", String(air_temp_avg));
         air_temp_avg_prev = air_temp_avg;
     }
     // Air Humidity
-    if (air_humidity_avg != air_humidity_avg_prev) {
+    if (air_humidity_avg != air_humidity_avg_prev || send_all_readings) {
         send_msg("air_humidity_avg", String(air_humidity_avg));
         air_humidity_avg_prev = air_humidity_avg;
     }
     // Water Temp
-    if (water_avg != water_avg_prev) {
+    if (water_avg != water_avg_prev || send_all_readings) {
         send_msg("water_avg", String(water_avg));
         water_avg_prev = water_avg;
     }
     // PH
-    if (ph_avg != ph_avg_prev) {
+    if (ph_avg != ph_avg_prev || send_all_readings) {
         send_msg("ph_avg", String(ph_avg));
         ph_avg_prev = ph_avg;
     }
     // PH Setpoint
-    if (ph_setpoint != ph_setpoint_prev) {
+    if (ph_setpoint != ph_setpoint_prev || send_all_readings) {
         send_msg("ph_setpoint", String(ph_setpoint));
         ph_setpoint_prev = ph_setpoint;
     }
     // PH Hyst Setpoint
-    if (ph_hyst_set != ph_hyst_set_prev) {
-        send_msg("ph_hyst_set", String(ph_hyst_set));
-        ph_hyst_set_prev = ph_hyst_set;
+    if (ph_hyst != ph_hyst_prev || send_all_readings) {
+        send_msg("ph_hyst", String(ph_hyst));
+        ph_hyst_prev = ph_hyst;
     }
     // PH Pin Low Time
-    if (ph_pin_low_time != ph_pin_low_time_prev) {
+    if (ph_pin_low_time != ph_pin_low_time_prev || send_all_readings) {
         send_msg("ph_pin_low_time", String(ph_pin_low_time));
         ph_pin_low_time_prev = ph_pin_low_time;
     }
     // PH Pin High Time
-    if (ph_pin_high_time != ph_pin_high_time_prev) {
+    if (ph_pin_high_time != ph_pin_high_time_prev || send_all_readings) {
         send_msg("ph_pin_high_time", String(ph_pin_high_time));
         ph_pin_high_time_prev = ph_pin_high_time;
     }
     // Light
-    if (light_avg != light_avg_prev) {
+    if (light_avg != light_avg_prev || send_all_readings) {
         send_msg("light_avg", String(light_avg));
         light_avg_prev = light_avg;
     }
     // Water Low Level
-    if (water_low != water_low_prev) {
+    if (water_low != water_low_prev || send_all_readings) {
         send_msg("water_low", String(water_low));
         water_low_prev = water_low;
     }
     // Water Medium Level
-    if (water_med != water_med_prev) {
+    if (water_med != water_med_prev || send_all_readings) {
         send_msg("water_med", String(water_med));
         water_med_prev = water_med;
     }
     // Water High Level
-    if (water_high != water_high_prev) {
+    if (water_high != water_high_prev || send_all_readings) {
         send_msg("water_high", String(water_high));
         water_high_prev = water_high;
     }
     // Fan Hyst Temp
-    if (fan_hyst != fan_hyst_prev) {
+    if (fan_hyst != fan_hyst_prev || send_all_readings) {
         send_msg("fan_hyst", String(fan_hyst));
         fan_hyst_prev = fan_hyst;
     }
     // Fan High Temp
-    if (fan_high != fan_high_prev) {
+    if (fan_high != fan_high_prev || send_all_readings) {
         send_msg("fan_high", String(fan_high));
         fan_high_prev = fan_high;
     }
+    // heartbeat_delay
+    if (heartbeat_delay != heartbeat_delay_prev || send_all_readings) {
+        send_msg("heartbeat_delay", String(heartbeat_delay));
+        heartbeat_delay_prev = heartbeat_delay;
+    }
+    // ph_reading_delay
+    if (ph_reading_delay != ph_reading_delay_prev || send_all_readings) {
+        send_msg("ph_reading_delay", String(ph_reading_delay));
+        ph_reading_delay_prev = ph_reading_delay;
+    }
+    // water_reading_delay
+    if (water_reading_delay != water_reading_delay_prev || send_all_readings) {
+        send_msg("water_reading_delay", String(water_reading_delay));
+        water_reading_delay_prev = water_reading_delay;
+    }
+    // air_reading_delay
+    if (air_reading_delay != air_reading_delay_prev || send_all_readings) {
+        send_msg("air_reading_delay", String(air_reading_delay));
+        air_reading_delay_prev = air_reading_delay;
+    }
+    // light_reading_delay
+    if (light_reading_delay != light_reading_delay_prev || send_all_readings) {
+        send_msg("light_reading_delay", String(light_reading_delay));
+        light_reading_delay_prev = light_reading_delay;
+    }
+
+    send_all_readings = false;
 }
 
 /*******************************************************************
 # SERIAL READ
 *******************************************************************/
+void print_update() {
+    Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+}
+
 void testing_msg() {
     // PH
-    if (topic == "ph_setpoint") {
-        float x = msg.toFloat();
-        ph_setpoint = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-    }
-    else if (topic == "ph_hyst_set") {
-        float x = msg.toFloat();
-        ph_hyst_set = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-    }
-    else if (topic == "ph_avg") {
+    if (topic == "ph_avg") {
         float x = msg.toFloat();
         ph_avg = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-    }
-    else if (topic == "ph_pin_low_time") {
-        float x = msg.toInt();
-        ph_pin_low_time = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-    }
-    else if (topic == "ph_pin_high_time") {
-        float x = msg.toInt();
-        ph_pin_high_time = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+        print_update();
     }
     // Water Temp
     else if (topic == "water_avg") {
-        float x = msg.toInt();
+        float x = msg.toFloat();
         water_avg = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+        print_update();
     }
-
     // Air Temp
     else if (topic == "air_temp_avg") {
-        float x = msg.toInt();
+        float x = msg.toFloat();
         air_temp_avg = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+        print_update();
     }
     // Air Humidity
     else if (topic == "air_humidity_avg") {
-        float x = msg.toInt();
+        float x = msg.toFloat();
         air_humidity_avg = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+        print_update();
     }
     // Light
     else if (topic == "light_avg") {
-        float x = msg.toInt();
+        float x = msg.toFloat();
         light_avg = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-    }
-
-    // Fan
-    else if (topic == "fan_hyst") {
-        float x = msg.toInt();
-        fan_hyst = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-    }
-    else if (topic == "fan_high") {
-        float x = msg.toInt();
-        fan_high = x;
-        Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+        print_update();
     }
     // Water Level
-    if (topic == "water_low") {
+    else if (topic == "water_low") {
         if (msg == "0") {
             water_low = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             water_low = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
-    if (topic == "water_med") {
+    else if (topic == "water_med") {
         if (msg == "0") {
             water_med = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             water_med = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
-    if (topic == "water_high") {
+    else if (topic == "water_high") {
         if (msg == "0") {
             water_high = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             water_high = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
 }
 
 void process_msg() {
-    if (topic == "manual_mode") {
-        if (msg == "0") {
-            manual_override = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
-        }
-        else if (msg == "1") {
-            manual_override = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+    
+    if (topic == "send_all_readings") {
+        if (msg == "1") {
+            send_all_readings = true;
+            print_update();
         }
     }
-    if (topic == "set_ph_plus") {
+    // Manual Mode
+    else if (topic == "manual_mode") {
+        if (msg == "0") {
+            manual_mode = 0;
+            print_update();
+        }
+        else if (msg == "1") {
+            manual_mode = 1;
+            print_update();
+        }
+    }
+    else if (topic == "manual_ph_plus") {
         if (msg == "0") {
             manual_ph_plus = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             manual_ph_plus = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
-    if (topic == "set_ph_minus") {
+    else if (topic == "manual_ph_minus") {
         if (msg == "0") {
             manual_ph_minus = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             manual_ph_minus = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
-    if (topic == "set_fan") {
+    else if (topic == "manual_fan") {
         if (msg == "0") {
             manual_fan = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             manual_fan = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
-    if (topic == "set_solenoid") {
+    else if (topic == "manual_solenoid") {
         if (msg == "0") {
             manual_solenoid = 0;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
         else if (msg == "1") {
             manual_solenoid = 1;
-            Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
+            print_update();
         }
     }
-    testing_msg();
+    // PH
+    else if (topic == "ph_setpoint") {
+        float x = msg.toFloat();
+        ph_setpoint = x;
+        print_update();
+    }
+    else if (topic == "ph_hyst") {
+        float x = msg.toFloat();
+        ph_hyst = x;
+        print_update();
+    }
+    // Fan
+    else if (topic == "fan_high") {
+        float x = msg.toFloat();
+        fan_high = x;
+        print_update();
+    }
+    else if (topic == "fan_hyst") {
+        float x = msg.toFloat();
+        fan_hyst = x;
+        print_update();
+    }
+    // Delays
+    else if (topic == "heartbeat_delay") {
+        unsigned long x = msg.toInt();
+        heartbeat_delay = x;
+        print_update();
+    }
+    else if (topic == "ph_reading_delay") {
+        unsigned long x = msg.toInt();
+        ph_reading_delay = x;
+        print_update();
+    }
+    else if (topic == "ph_pin_low_time") {
+        unsigned long x = msg.toInt();
+        ph_pin_low_time = x;
+        print_update();
+    }
+    else if (topic == "ph_pin_high_time") {
+        unsigned long x = msg.toInt();
+        ph_pin_high_time = x;
+        print_update();
+    }
+    else if (topic == "water_reading_delay") {
+        unsigned long x = msg.toInt();
+        water_reading_delay = x;
+        print_update();
+    }
+    else if (topic == "air_reading_delay") {
+        unsigned long x = msg.toInt();
+        air_reading_delay = x;
+        print_update();
+    }
+    else if (topic == "light_reading_delay") {
+        unsigned long x = msg.toInt();
+        light_reading_delay = x;
+        print_update();
+    }
+    else {
+        testing_msg();
+    }
+    
     // reset the topic and msg variables
     topic = "";
     msg = "";
@@ -783,42 +938,33 @@ void setup() {
     Serial.begin(BAUD_RATE);        // Start Serial
     Serial1.begin(BAUD_RATE1);      // Start Serial1
     Serial.println("Serial Started");
-    dht.begin();                  // Air Temp
+    send_msg("alive", "1");         // Send message to clear buffer. First message doesn't go through for some reason?
+    send_sensor_readings();         // Init sensor read values
+    dht.begin();                    // Air Temp
+    delay(100);
   }
   
   
 void loop() {
-    if (manual_override == 0) {
-        // if (air_temp_update()) {
-        //     set_fan();
-        // }
-        // if (ph_update()) {
-        //     ph_update()
-        // }
-        // if (water_level_update()) {
-        //     set_water_level();
-        // }
-        water_temp_update();
-        light_update();
-        send_sensor_readings();  // Write sensor readings to serial
-  
-        set_ph();
+    if (manual_mode == 0) {
+        // air_temp_update();
         set_fan();
+
+        // ph_update();
+        set_ph();
+
+        // water_level_update();
         set_water_level();
-        
+
+        // water_temp_update();
+        // light_update();
     }
     else {
-        set_manual_mode();  // Manual mode function
+        set_manual_mode();      // Manual mode function
     }
-    serialEvent();  // Process serial received messages
-
-    unsigned long cur_millis = millis();
-    if (heartbeat_prev_millis < cur_millis - heartbeat_time && cur_millis > heartbeat_time) {
-        String hb = "hb-" + String(count);
-        send_msg("heartbeat", hb);
-        heartbeat_prev_millis = cur_millis;
-        count++;
-    }
+    send_sensor_readings();     // Write sensor readings to serial
+    serialEvent();              // Process serial received messages
+    heartbeat();                // Send heartbeat
 
     delay(10);
 }
