@@ -10,6 +10,9 @@ TODO:
         - WDT trip
         - Water level conflict
     - Create test mode state for setting values
+    - Add a state recorder for the relay states and send via serial to be monitored:
+      ph_plus, ph_minuis, fan, solenoid states.
+      Note: you can read from an output pin as weird as the concept is
 */
 
 /*******************************************************************
@@ -44,7 +47,7 @@ TODO:
 # VARIABLE SETUP
 *******************************************************************/
 // WATCH DOG TIMER
-#define WDT_TIMEOUT WDTO_4S
+#define WDT_TIMEOUT WDTO_4S         // Watch dog timer delay time set to 4s
 
 // SERIAL
 #define BAUD_RATE 9600              // Serial Baud Rate
