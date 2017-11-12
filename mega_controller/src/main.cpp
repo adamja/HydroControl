@@ -5,27 +5,25 @@ Author: Adam Jacob
 Comments:
 
 TODO:
-    - Interrupt for serial read. Store read values into an array to
-      be read in a function all at once.
-      Looking further into it, we might be able to use SerialEvent:
-      https://www.arduino.cc/en/Tutorial/SerialEvent
-    - Add a queue library to assist with incoming messages
-      https://playground.arduino.cc/Code/QueueArray#Download
-    - Add watch dog timer feature
-    - Add a timed message to send out that the controller is still alive
+    - Fix the average calculation to work with a std deviation
+    - Send error messages for fault states
+        - WDT trip
+        - Water level conflict
+    - Create test mode state for setting values
 */
 
 /*******************************************************************
-# INCLUDES                 
+# INCLUDES
 *******************************************************************/
 
 #include <Arduino.h>        // Arduino library
 #include <Wire.h>
+#include <avr/wdt.h>        // Watch dog timer
 #include <DHT.h>            // Temperature sensor library  for DHT22
 #include <QueueArray.h>     // Queue library for holding serial input messages
 
 /*******************************************************************
-# PIN SETUP                     
+# PIN SETUP
 *******************************************************************/
 // Inputs
 #define pin_water_ph A2           // Water ph sensor
@@ -43,8 +41,10 @@ TODO:
 #define pin_solenoid 7           // Water solenoid relay
 
 /*******************************************************************
-# VARIABLE SETUP                 
+# VARIABLE SETUP
 *******************************************************************/
+// WATCH DOG TIMER
+#define WDT_TIMEOUT WDTO_4S
 
 // SERIAL
 #define BAUD_RATE 9600              // Serial Baud Rate
@@ -109,9 +109,8 @@ float air_temp_last = 0.0;                      // Last temp reading value
 float air_humidity_last = 0.0;                  // Last humidity reading value
 float air_temp_avg = 0.0;                       // 
 float air_humidity_avg = 0.0;                   // 
-unsigned long air_reading_delay = 250;          // time between readings (ms)
+unsigned long air_reading_delay = 250;          // Time between readings (ms)
 unsigned long air_prev_millis = 0;              // 
-
 
 // LIGHT VARIABLES
 unsigned long light_reading_delay = 100;
@@ -168,7 +167,7 @@ unsigned long light_reading_delay_prev = light_reading_delay;
 
 
 /*******************************************************************
-# FUNCTIONS                     
+# FUNCTIONS
 *******************************************************************/
 
 void pin_setup() {
@@ -189,6 +188,11 @@ void pin_setup() {
     digitalWrite(pin_ph_minus, LOW);
     digitalWrite(pin_fan, LOW);
     digitalWrite(pin_solenoid, LOW);
+}
+
+void watch_dog_timer_setup() {
+    wdt_disable();
+    wdt_enable(WDT_TIMEOUT);  // Set watchdog timeout value
 }
 
 float calc_avg(int size, float *readings) {
@@ -237,7 +241,7 @@ float calc_avg(int size, float *readings) {
 
 
 /*******************************************************************
-# AIR TEMP                     
+# AIR TEMP
 *******************************************************************/
 
 bool read_air_temp() {
@@ -450,7 +454,7 @@ bool light_update() {
 }
 
 /*******************************************************************
-# FAN                    
+# FAN
 *******************************************************************/
 
 void set_fan() {
@@ -471,7 +475,7 @@ void set_fan() {
 }
 
 /*******************************************************************
-# WATER LEVELS                    
+# WATER LEVELS
 *******************************************************************/
 
 void water_level_update() {
@@ -508,10 +512,17 @@ void set_water_level() {
             solenoid_prev = 1;
         }
     }
+    else {
+        digitalWrite(pin_solenoid, LOW);
+        if (solenoid_prev != 0) {
+                Serial.println("Turning Solenoid Off");
+            }
+            solenoid_prev = 0;
+    }
 }
 
 /*******************************************************************
-# MANUAL MODE                    
+# MANUAL MODE
 *******************************************************************/
 
 void set_manual_mode() {
@@ -930,7 +941,7 @@ void serialEvent() {
 }
 
 /*******************************************************************
-# SETUP AND LOOP                       
+# SETUP AND LOOP
 *******************************************************************/
 
 void setup() {
@@ -941,6 +952,7 @@ void setup() {
     send_msg("alive", "1");         // Send message to clear buffer. First message doesn't go through for some reason?
     send_sensor_readings();         // Init sensor read values
     dht.begin();                    // Air Temp
+    watch_dog_timer_setup();
     delay(100);
   }
   
@@ -965,6 +977,7 @@ void loop() {
     send_sensor_readings();     // Write sensor readings to serial
     serialEvent();              // Process serial received messages
     heartbeat();                // Send heartbeat
+    wdt_reset();                // Reset watch dog timer
 
     delay(10);
 }
