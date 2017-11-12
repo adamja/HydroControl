@@ -74,13 +74,16 @@ int manual_ph_minus = 0;        // Default off
 int manual_fan = 0;             // Default off
 int manual_solenoid = 0;        // Default off
 
+// TEST VARIABLES
+bool test_mode = false;
+
 // PH VARIABLES
 int ph_mode = 0;                    // 0 = idle | 1 = ph low | 2 = ph high
 unsigned long ph_reading_delay = 100;   // Delay between reads
 unsigned long ph_read_prev_millis = 0;  // Previous millis when reading
 unsigned long ph_set_prev_millis = 0;   // Previous millis for setting duty cycle
 float ph_setpoint = 7.0;            // Target value for the ph to be set to
-float ph_hyst = 2.0;            // Acceptable deviation from the set point
+float ph_hyst = 2.0;                // Acceptable deviation from the set point
 const int ph_array_size = 10;       // Amount of readings to take before taking the average
 int ph_cursor = 0;                  // Cursor for array position
 float ph_array[ph_array_size];      // Init the array base on the size
@@ -142,11 +145,18 @@ int fan_prev = 0;          // 0 = off | 1 = on
 int ph_prev = 0;           // 0 = idle | 1 = ph low | 2 = ph high
 int solenoid_prev = 0;     // 0 = off | 1 = on
 
-int manual_mode_prev = manual_mode;
+bool test_mode_prev = test_mode;
+
+bool manual_mode_prev = manual_mode;
 int manual_ph_plus_prev = manual_ph_plus;
 int manual_ph_minus_prev = manual_ph_minus;
 int manual_fan_prev = manual_fan;
 int manual_solenoid_prev = manual_solenoid;
+
+int ph_plus_relay_prev = 0;
+int ph_minuis_relay_prev = 0;
+int fan_relay_prev = 0;
+int solenoid_relay_prev = 0;
 
 float air_temp_avg_prev = air_temp_avg;
 float air_humidity_avg_prev = air_humidity_avg;
@@ -589,6 +599,32 @@ void send_sensor_readings() {
     if (send_all_readings) {
         send_msg("heartbeat", String(heartbeat_count));
     }
+    // Relay Pins
+    int ph_plus_relay = digitalRead(pin_ph_plus);
+    int ph_minuis_relay = digitalRead(pin_ph_minus);
+    int fan_relay = digitalRead(pin_fan);
+    int solenoid_relay = digitalRead(pin_solenoid);
+    if (ph_plus_relay != ph_plus_relay_prev || send_all_readings) {
+        send_msg("ph_plus_relay", String(ph_plus_relay));
+        ph_plus_relay_prev = ph_plus_relay;
+    }
+    if (ph_minuis_relay != ph_minuis_relay_prev || send_all_readings) {
+        send_msg("ph_minuis_relay", String(ph_minuis_relay));
+        ph_minuis_relay_prev = ph_minuis_relay;
+    }
+    if (fan_relay != fan_relay_prev || send_all_readings) {
+        send_msg("fan_relay", String(fan_relay));
+        fan_relay_prev = fan_relay;
+    }
+    if (solenoid_relay != solenoid_relay_prev || send_all_readings) {
+        send_msg("solenoid_relay", String(solenoid_relay));
+        solenoid_relay_prev = solenoid_relay;
+    }
+    // Test Mode
+    if (test_mode != test_mode_prev || send_all_readings) {
+        send_msg("test_mode", String(test_mode));
+        test_mode_prev = test_mode;
+    }
     // Manual Mode
     if (manual_mode != manual_mode_prev || send_all_readings) {
         send_msg("manual_mode", String(manual_mode));
@@ -716,7 +752,7 @@ void print_update() {
     Serial.print("Updated "); Serial.print(topic); Serial.print(" to: "); Serial.println(msg);
 }
 
-void testing_msg() {
+void test_mode_msg() {
     // PH
     if (topic == "ph_avg") {
         float x = msg.toFloat();
@@ -785,6 +821,17 @@ void process_msg() {
     if (topic == "send_all_readings") {
         if (msg == "1") {
             send_all_readings = true;
+            print_update();
+        }
+    }
+    // Test Mode
+    else if (topic == "test_mode") {
+        if (msg == "0") {
+            test_mode = 0;
+            print_update();
+        }
+        else if (msg == "1") {
+            test_mode = 1;
             print_update();
         }
     }
@@ -897,8 +944,8 @@ void process_msg() {
         light_reading_delay = x;
         print_update();
     }
-    else {
-        testing_msg();
+    else if (test_mode) {
+        test_mode_msg();
     }
     
     // reset the topic and msg variables
