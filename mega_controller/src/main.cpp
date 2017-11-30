@@ -9,10 +9,9 @@ TODO:
     - Send error messages for fault states
         - WDT trip
         - Water level conflict
-    - Create test mode state for setting values
-    - Add a state recorder for the relay states and send via serial to be monitored:
-      ph_plus, ph_minuis, fan, solenoid states.
-      Note: you can read from an output pin as weird as the concept is
+    - Add a timeout period to revert test and manual modes to off.
+      In the event they are left set they will deactivate and operations
+      will return to normal.
 */
 
 /*******************************************************************
@@ -115,7 +114,7 @@ float air_temp_last = 0.0;                      // Last temp reading value
 float air_humidity_last = 0.0;                  // Last humidity reading value
 float air_temp_avg = 0.0;                       // 
 float air_humidity_avg = 0.0;                   // 
-unsigned long air_reading_delay = 250;          // Time between readings (ms)
+unsigned long air_reading_delay = 2500;          // Time between readings (ms)
 unsigned long air_prev_millis = 0;              // 
 
 // LIGHT VARIABLES
@@ -212,9 +211,8 @@ float calc_avg(int size, float *readings) {
     // TODO: sort array and remove outliers and take medium value instead
     float total = 0;
     float avg = 0;
-    int n=2; 
-    // Bubble sort (isn't needed when finding the mean, only needed for finding the median)
-    /*
+
+    // Bubble sort
     int temp = 0;
     for (int i = 0; i < (size - 1); i++) {
         for (int j = i + 1; j < size; j++) {
@@ -225,34 +223,22 @@ float calc_avg(int size, float *readings) {
             } 
         }
     }
-    */
     // take 20% off either end of the array matt: better way to do it is calculate standard deviation (SD), then remove evrything outside some integer multiple of SD.
-     // finds the average of all
+    /* // finds the average
     for (int i= 0; i=size-1; i++)
     {
         total + =readings[i];
     }
     avg = total / size
       // does the summing part of finding the SD
-    for (int i=0; i=size; i++)
+    for (int i=0; i=size-1; i++)
     {
-        sum += (readings[i]-avg)^2;
+        sum += (readings[i]-avg)^2
     }
     // calculates the SD using the previous summing
     SD =sqrt(sum / size)
     // now just have to remove all values less than avg-n*SD and larger than avg+n*SD, where n is some integer.
-    for (int i=0; int i=size; i++)
-    {
-        N=0;
-        if (readings[i] > avg-n*SD && readings[i] < avg+n*SD)
-        {
-            N +=1;
-            total += readings[i];
-        }
-    }
-
-    avg = total/N; // finds new average with outliers removed
-    /*
+    */
     float percent = 0.2;
     int outlier = (int)(size * percent);
 
@@ -261,7 +247,7 @@ float calc_avg(int size, float *readings) {
 		total += readings[i];
 	}
     avg = total / (size - (2 * outlier));
-    */
+    
     return avg;
 }
 
@@ -284,7 +270,7 @@ bool read_air_temp() {
         if (isnan(h) || isnan(t)) {
             return false;  // Failed to read, return false
         }
-        air_temp_last = h;
+        air_humidity_last = h;
         air_temp_last = t;
         air_prev_millis = millis();
         return true;
@@ -1022,7 +1008,7 @@ void setup() {
   
 void loop() {
     if (manual_mode == 0) {
-        // air_temp_update();
+        air_temp_update();
         set_fan();
 
         // ph_update();
